@@ -1,144 +1,201 @@
+"""週刊少年マガジンポケットの無料エピソードを取得するAtom RSSジェネレータ。"""
+
+from __future__ import annotations
+
 import csv
 import hashlib
 import json
+import logging
 import os
+from datetime import datetime
+from pathlib import Path
 
 import feedgenerator
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
-from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-SSL_VERIFY = os.getenv('SSL_VERIFY', 'True') == 'True'
-api_url = "https://api.pocket.shonenmagazine.com/episode/list"
+logger = logging.getLogger("magazinepocket-rss")
+
+TITLE_BASE_URL = "https://pocket.shonenmagazine.com/title/"
+API_URL = "https://api.pocket.shonenmagazine.com/episode/list"
+REQUEST_TIMEOUT = 10
+EPISODE_HASH_WINDOW = 10
+
+FEEDS_DIR = Path("feeds")
+FEED_LIST_PATH = Path("feed.csv")
+TEMPLATE_DIR = Path("templates")
+
+
+def _parse_bool(value: str) -> bool:
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+SSL_VERIFY = _parse_bool(os.getenv("SSL_VERIFY", "True"))
+
+
+# API 検証ハッシュ生成（サイト側で難読化された識別子をそのまま使用）
+def mc(data) -> str:
+    return hashlib.sha256(str(data).encode()).hexdigest()
+
+
+def vh(data) -> str:
+    return hashlib.sha512(str(data).encode()).hexdigest()
+
+
+def Od(e, t) -> str:
+    return f"{mc(str(e))}_{vh(str(t))}"
+
+
+def wh(e: dict) -> str:
+    parts = [Od(str(k), str(e[k])) for k in sorted(e.keys())]
+    return vh(f"{mc(','.join(parts))}{Od('', '')}")
+
+
+def Ae(e: dict) -> str:
+    return wh(e)
 
 
 def episode_id_list(values):
     for value in values:
-        if isinstance(value, dict):
-            if 'episode_id_list' in value:
-                episode_ids = []
-                for episode_idx in values[value['episode_id_list']]:
-                    episode_ids.append(values[episode_idx])
-                return episode_ids
+        if isinstance(value, dict) and "episode_id_list" in value:
+            return [values[i] for i in values[value["episode_id_list"]]]
     return None
 
 
-def mc(data):
-    return hashlib.sha256(str(data).encode()).hexdigest()
+def create_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=2,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET", "POST"),
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.verify = SSL_VERIFY
+    return session
 
 
-def vh(data):
-    return hashlib.sha512(str(data).encode()).hexdigest()
+def fetch_episode_list(session: requests.Session, episode_ids: list) -> list[dict]:
+    last_ids = ",".join(map(str, episode_ids[-EPISODE_HASH_WINDOW:]))
+    payload = {"episode_id_list": last_ids}
+    response = session.post(
+        API_URL,
+        data=payload,
+        timeout=REQUEST_TIMEOUT,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "Referer": "https://pocket.shonenmagazine.com/",
+            "x-manga-hash": Ae(payload),
+            "x-manga-is-crawler": "false",
+            "x-manga-platform": "3",
+        },
+    )
+    response.raise_for_status()
+    return response.json().get("episode_list", [])
 
 
-def Od(e, t):
-    return f"{mc(str(e))}_{vh(str(t))}"
+def build_feed_for_title(session: requests.Session, feed_id: str) -> dict | None:
+    url = f"{TITLE_BASE_URL}{feed_id}"
+    logger.info("%s %s", feed_id, url)
 
+    response = session.get(url, timeout=REQUEST_TIMEOUT)
+    if not response.ok:
+        logger.warning("failed to retrieve %s (status=%s)", feed_id, response.status_code)
+        return None
 
-def wh(e):
-    t = list(e.keys())
-    t.sort()
-    r = []
-    for i in t:
-        r.append(Od(str(i), str(e[i])))
-    n = mc(",".join(r))
-    a = Od("", "")
-    return vh(f"{n}{a}")
+    soup = BeautifulSoup(response.text, "html.parser")
 
+    script_tag = soup.find("script", {"id": "__NUXT_DATA__"})
+    if not script_tag:
+        logger.warning("no NUXT data for %s", feed_id)
+        return None
 
-def Ae(e):
-    return wh(e)
+    h1 = soup.find("h1")
+    if not h1:
+        logger.warning("no h1 for %s", feed_id)
+        return None
 
+    title = h1.text.strip()
+    logger.info("%s %s", feed_id, title)
 
-rendered_feeds = []
-with open('feed.csv') as feed_file:
-    for feed in csv.reader(feed_file):
-        feed_id = feed[0].strip()
+    description_div = soup.find("div", class_="p-episode__comic-description")
+    comic_img_div = soup.find("div", class_="p-episode__comic-img")
+    description = description_div.text.strip() if description_div else ""
+    image = comic_img_div.img.get("src") if comic_img_div and comic_img_div.img else None
 
-        # パストラバーサル防止: IDは数字のみ許可
-        if not feed_id.isdigit():
-            print(f"Invalid feed ID: {feed_id!r}, skipping")
-            continue
+    rss = feedgenerator.Atom1Feed(
+        title=title,
+        link=url,
+        description=description,
+        language="ja",
+        image=image,
+    )
 
-        comics_url = "https://pocket.shonenmagazine.com/title/" + feed_id
-        print(feed_id, comics_url)
-
-        comics = requests.get(comics_url, verify=SSL_VERIFY, timeout=10)
-        if not comics.ok:
-            print(f"{comics.status_code} for {feed_id}, retrying...")
-            comics = requests.get(comics_url, verify=SSL_VERIFY, timeout=10)
-
-        if not comics.ok:
-            print(f"Failed to retrieve comics for {feed_id}")
-            continue
-
-        soup = BeautifulSoup(comics.text, 'html.parser')
-
-        script_tag = soup.find("script", {"id": "__NUXT_DATA__"})
-        if not script_tag:
-            print(f"No NUXT data for {feed_id}")
-            continue
-
-        h1 = soup.find('h1')
-        if not h1:
-            print(f"No h1 for {feed_id}")
-            continue
-        comic_title = h1.text.strip()
-        print(feed_id, comic_title)
-        rendered_feeds.append({'id': feed_id, 'title': comic_title})
-
-        description_div = soup.find('div', class_='p-episode__comic-description')
-        comic_img_div = soup.find('div', class_='p-episode__comic-img')
-        description = description_div.text.strip() if description_div else ""
-        image = comic_img_div.img.get('src') if comic_img_div and comic_img_div.img else None
-
-        rss = feedgenerator.Atom1Feed(
-            title=comic_title,
-            link=comics_url,
-            description=description,
-            language="ja",
-            image=image
-        )
-
-        json_text = script_tag.string
-        episode_ids = episode_id_list(json.loads(json_text))
-        last_episode_ids = ','.join(map(str, episode_ids[-10:]))
-
-        data = {'episode_id_list': last_episode_ids}
-        manga_hash = Ae(data)
-
-        episode_response = requests.post(api_url, data, verify=SSL_VERIFY, timeout=10, headers={
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'Referer': 'https://pocket.shonenmagazine.com/',
-            'x-manga-hash': manga_hash,
-            'x-manga-is-crawler': 'false',
-            'x-manga-platform': '3',
-        })
-        episode_json = episode_response.json()
-
-        for episode in episode_json['episode_list']:
-            if episode['point'] != 0:
+    try:
+        episode_ids = episode_id_list(json.loads(script_tag.string))
+        for episode in fetch_episode_list(session, episode_ids or []):
+            if episode["point"] != 0:
                 continue
-
             rss.add_item(
-                unique_id=episode['episode_id'],
-                title=episode['episode_name'],
-                link=comics_url + "/episode/" + str(episode['episode_id']),
+                unique_id=episode["episode_id"],
+                title=episode["episode_name"],
+                link=f"{url}/episode/{episode['episode_id']}",
                 description="",
-                pubdate=datetime.strptime(episode['start_time'], '%Y-%m-%d %H:%M:%S'),
-                content=""
+                pubdate=datetime.strptime(episode["start_time"], "%Y-%m-%d %H:%M:%S"),
+                content="",
             )
+    except Exception:
+        logger.exception("failed to fetch episodes for %s", feed_id)
 
-        with open('feeds/' + feed_id + '.xml', 'w') as fp:
-            rss.write(fp, 'utf-8')
+    with (FEEDS_DIR / f"{feed_id}.xml").open("w") as fp:
+        rss.write(fp, "utf-8")
 
-# Generate index.html
-jinja_env = Environment(
-    loader=FileSystemLoader('templates'),
-    autoescape=True
-)
-jinja_template = jinja_env.get_template('index.html')
-with open('feeds/index.html', 'w') as index:
-    index.write(jinja_template.render(feeds=rendered_feeds))
+    return {"id": feed_id, "title": title}
+
+
+def read_feed_ids(path: Path):
+    with path.open() as fp:
+        for row in csv.reader(fp):
+            if not row:
+                continue
+            feed_id = row[0].strip()
+            if not feed_id:
+                continue
+            # パストラバーサル防止: IDは数字のみ許可
+            if not feed_id.isdigit():
+                logger.warning("invalid feed ID %r, skipping", feed_id)
+                continue
+            yield feed_id
+
+
+def render_index(feeds: list[dict]) -> None:
+    env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=True)
+    template = env.get_template("index.html")
+    (FEEDS_DIR / "index.html").write_text(template.render(feeds=feeds))
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if not SSL_VERIFY:
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    session = create_session()
+    rendered = []
+    for feed_id in read_feed_ids(FEED_LIST_PATH):
+        try:
+            result = build_feed_for_title(session, feed_id)
+        except Exception:
+            logger.exception("failed to build feed for %s", feed_id)
+            continue
+        if result:
+            rendered.append(result)
+    render_index(rendered)
+
+
+if __name__ == "__main__":
+    main()
