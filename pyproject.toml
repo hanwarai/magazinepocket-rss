@@ -10,3 +10,11 @@ dependencies = [
     "jinja2>=3.1.6",
     "requests>=2.33.1",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
