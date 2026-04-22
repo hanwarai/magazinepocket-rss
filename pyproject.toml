@@ -14,7 +14,23 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
+    "requests-mock>=1.12.1",
+    "mypy>=1.11.0",
+    "types-requests>=2.33.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["main.py"]
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["feedgenerator"]
+ignore_missing_imports = true

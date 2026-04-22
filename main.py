@@ -7,8 +7,10 @@ import hashlib
 import json
 import logging
 import os
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import feedgenerator
 import requests
@@ -38,28 +40,28 @@ SSL_VERIFY = _parse_bool(os.getenv("SSL_VERIFY", "True"))
 
 
 # API 検証ハッシュ生成（サイト側で難読化された識別子をそのまま使用）
-def mc(data) -> str:
+def mc(data: object) -> str:
     return hashlib.sha256(str(data).encode()).hexdigest()
 
 
-def vh(data) -> str:
+def vh(data: object) -> str:
     return hashlib.sha512(str(data).encode()).hexdigest()
 
 
-def Od(e, t) -> str:
+def Od(e: object, t: object) -> str:
     return f"{mc(str(e))}_{vh(str(t))}"
 
 
-def wh(e: dict) -> str:
+def wh(e: dict[str, Any]) -> str:
     parts = [Od(str(k), str(e[k])) for k in sorted(e.keys())]
     return vh(f"{mc(','.join(parts))}{Od('', '')}")
 
 
-def Ae(e: dict) -> str:
+def Ae(e: dict[str, Any]) -> str:
     return wh(e)
 
 
-def episode_id_list(values):
+def episode_id_list(values: list[Any]) -> list[Any] | None:
     for value in values:
         if isinstance(value, dict) and "episode_id_list" in value:
             return [values[i] for i in values[value["episode_id_list"]]]
@@ -79,7 +81,9 @@ def create_session() -> requests.Session:
     return session
 
 
-def fetch_episode_list(session: requests.Session, episode_ids: list) -> list[dict]:
+def fetch_episode_list(
+    session: requests.Session, episode_ids: list[Any]
+) -> list[dict[str, Any]]:
     last_ids = ",".join(map(str, episode_ids[-EPISODE_HASH_WINDOW:]))
     payload = {"episode_id_list": last_ids}
     response = session.post(
@@ -96,10 +100,13 @@ def fetch_episode_list(session: requests.Session, episode_ids: list) -> list[dic
         },
     )
     response.raise_for_status()
-    return response.json().get("episode_list", [])
+    episodes = response.json().get("episode_list", [])
+    return list(episodes)
 
 
-def build_feed_for_title(session: requests.Session, feed_id: str) -> dict | None:
+def build_feed_for_title(
+    session: requests.Session, feed_id: str
+) -> dict[str, str] | None:
     url = f"{TITLE_BASE_URL}{feed_id}"
     logger.info("%s %s", feed_id, url)
 
@@ -136,8 +143,13 @@ def build_feed_for_title(session: requests.Session, feed_id: str) -> dict | None
         image=image,
     )
 
+    nuxt_json = script_tag.string
+    if not nuxt_json:
+        logger.warning("empty NUXT data for %s", feed_id)
+        return None
+
     try:
-        episode_ids = episode_id_list(json.loads(script_tag.string))
+        episode_ids = episode_id_list(json.loads(nuxt_json))
         for episode in fetch_episode_list(session, episode_ids or []):
             if episode["point"] != 0:
                 continue
@@ -158,7 +170,8 @@ def build_feed_for_title(session: requests.Session, feed_id: str) -> dict | None
     return {"id": feed_id, "title": title}
 
 
-def read_feed_ids(path: Path):
+def read_feed_ids(path: Path) -> Iterator[str]:
+    seen: set[str] = set()
     with path.open() as fp:
         for row in csv.reader(fp):
             if not row:
@@ -170,10 +183,14 @@ def read_feed_ids(path: Path):
             if not feed_id.isdigit():
                 logger.warning("invalid feed ID %r, skipping", feed_id)
                 continue
+            if feed_id in seen:
+                logger.warning("duplicate feed ID %r, skipping", feed_id)
+                continue
+            seen.add(feed_id)
             yield feed_id
 
 
-def render_index(feeds: list[dict]) -> None:
+def render_index(feeds: list[dict[str, str]]) -> None:
     env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=True)
     template = env.get_template("index.html")
     (FEEDS_DIR / "index.html").write_text(template.render(feeds=feeds))
@@ -185,7 +202,7 @@ def main() -> None:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     session = create_session()
-    rendered = []
+    rendered: list[dict[str, str]] = []
     for feed_id in read_feed_ids(FEED_LIST_PATH):
         try:
             result = build_feed_for_title(session, feed_id)
