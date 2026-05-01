@@ -51,7 +51,6 @@ GitHub Actions（`.github/workflows/gh-pages.yaml`）:
 - トリガー: mainブランチへのpush、12時間ごとのスケジュール実行
 - 処理: `uv sync` → `uv run mypy main.py` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
 - scheduled run が失敗した場合、`notify-failure` ジョブが `ci-failure` ラベルの Issue を自動起票（既存 open Issue があればコメント追記）
-- `keepalive` ジョブが scheduled run で動作し、60 日アイドルによる cron 自動停止を防ぐ
 
 ## Notes
 
