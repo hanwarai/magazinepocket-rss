@@ -21,7 +21,7 @@ ci = ["uv==0.11.19"]
 dev = [
     "pytest>=8.0.0",
     "requests-mock>=1.12.1",
-    "mypy>=2.1.0",
+    "mypy>=2.3.0",
     "types-requests>=2.33.0.20260518",
 ]
 
