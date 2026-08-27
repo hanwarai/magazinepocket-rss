@@ -49,14 +49,18 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 
 GitHub Actions（`.github/workflows/gh-pages.yaml`）:
 - トリガー: mainブランチへのpush、12時間ごとのスケジュール実行
-- 処理: `uv sync` → `uv run mypy main.py` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
+- 処理: `uv sync --locked --all-extras` → `uv run mypy main.py` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
 - scheduled run が失敗した場合、`notify-failure` ジョブが `ci-failure` ラベルの Issue を自動起票（既存 open Issue があればコメント追記）
 
 GitHub Actions（`.github/workflows/ci.yaml`）:
 - トリガー: pull_request
-- 処理: `uv sync --frozen --all-extras` → `uv run mypy main.py` → `uv run pytest`
+- 処理: `uv sync --locked --all-extras` → `uv run mypy main.py` → `uv run pytest`
 - PR 用の軽量ゲート。`main.py` のスクレイピングと Pages デプロイは行わない
-- uv バージョン解決ステップは `gh-pages.yaml` と意図的に同内容（デプロイ経路と同じ uv で検証するため）。片方を変えたらもう片方も合わせる
+
+共通部品:
+- `.github/scripts/resolve-uv-version.sh` — `pyproject.toml` の uv ピンを読み `version=X.Y.Z` を出力する。両ワークフローが使う。仕様は `tests/test_resolve_uv_version.py` が固定しており、ローカルでも実行できるよう `grep -P`（GNU 限定）ではなく POSIX `sed` で書いてある
+- `uv sync` は両方とも `--locked`。`pyproject.toml` を編集して `uv lock` を忘れた場合に CI が落ちる
+- **setup-uv / setup-python などの `uses:` 行を composite action（`.github/actions/*/action.yml`）へ切り出してはいけない**。Dependabot の github-actions エコシステムは `.github/workflows/` とリポジトリルートの `action.yml` しか走査せず、そこへ移すとバージョン追跡から外れる（dependabot-core#9788 は "not planned" で close）。`uses:` 行の重複は Dependabot が自動で同期するため許容する
 
 ## Notes
 
