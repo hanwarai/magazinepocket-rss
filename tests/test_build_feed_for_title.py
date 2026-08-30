@@ -1,4 +1,4 @@
-"""build_feed_for_title のエンドツーエンド（HTTP はモック）テスト。
+"""build_feed_for_title のエンドツーエンド(HTTP はモック)テスト。
 
 タイトルページの HTML + NUXT_DATA を与え、エピソード API レスポンスを
 モックして、feeds/<id>.xml が生成され戻り値が期待通りか検証する。
@@ -87,9 +87,7 @@ def test_returns_none_on_404(requests_mock: rm_module.Mocker, feeds_dir: Path) -
     assert not (feeds_dir / f"{FEED_ID}.xml").exists()
 
 
-def test_returns_none_when_no_nuxt_data(
-    requests_mock: rm_module.Mocker, feeds_dir: Path
-) -> None:
+def test_returns_none_when_no_nuxt_data(requests_mock: rm_module.Mocker, feeds_dir: Path) -> None:
     requests_mock.get(
         TITLE_URL,
         text="<html><body><h1>タイトル</h1></body></html>",
@@ -98,9 +96,7 @@ def test_returns_none_when_no_nuxt_data(
     assert main.build_feed_for_title(main.create_session(), FEED_ID) is None
 
 
-def test_returns_none_when_no_h1(
-    requests_mock: rm_module.Mocker, feeds_dir: Path
-) -> None:
+def test_returns_none_when_no_h1(requests_mock: rm_module.Mocker, feeds_dir: Path) -> None:
     html = '<html><body><script id="__NUXT_DATA__">[]</script></body></html>'
     requests_mock.get(TITLE_URL, text=html)
 
@@ -110,7 +106,7 @@ def test_returns_none_when_no_h1(
 def test_writes_feed_even_when_episode_api_fails(
     requests_mock: rm_module.Mocker, feeds_dir: Path
 ) -> None:
-    # API が落ちてもタイトルページのフィードは生成される（エピソードは空）
+    # API が落ちてもタイトルページのフィードは生成される(エピソードは空)
     requests_mock.get(TITLE_URL, text=_title_html(title="連載中"))
     requests_mock.post(main.API_URL, status_code=500)
 
@@ -123,7 +119,7 @@ def test_writes_feed_even_when_episode_api_fails(
 def test_handles_missing_description_and_image(
     requests_mock: rm_module.Mocker, feeds_dir: Path
 ) -> None:
-    html = f"""
+    html = """
     <html><body>
       <h1>最小構成</h1>
       <script id="__NUXT_DATA__">[]</script>
