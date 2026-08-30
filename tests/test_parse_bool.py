@@ -6,15 +6,15 @@ from main import _parse_bool
 
 
 @pytest.mark.parametrize("value", ["True", "true", "TRUE", "1", "yes", "on", "anything"])
-def test_truthy_values(value):
+def test_truthy_values(value: str) -> None:
     assert _parse_bool(value) is True
 
 
 @pytest.mark.parametrize("value", ["false", "False", "FALSE", "0", "no", "NO", "off", "OFF", ""])
-def test_falsy_values(value):
+def test_falsy_values(value: str) -> None:
     assert _parse_bool(value) is False
 
 
-def test_whitespace_is_stripped():
+def test_whitespace_is_stripped() -> None:
     assert _parse_bool("  false  ") is False
     assert _parse_bool("  True  ") is True

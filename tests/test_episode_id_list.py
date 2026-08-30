@@ -3,7 +3,7 @@
 import main
 
 
-def test_extracts_ids_via_index_lookup():
+def test_extracts_ids_via_index_lookup() -> None:
     # 典型的な NUXT_DATA 形状: 最初の dict が episode_id_list のインデックス、
     # そのインデックスが配列、配列の各要素はさらに別のインデックス
     values = [
@@ -16,16 +16,16 @@ def test_extracts_ids_via_index_lookup():
     assert main.episode_id_list(values) == [100, 200, 300]
 
 
-def test_returns_none_when_key_absent():
+def test_returns_none_when_key_absent() -> None:
     values = [{"other_key": 1}, "foo", 42]
     assert main.episode_id_list(values) is None
 
 
-def test_returns_none_for_empty_list():
+def test_returns_none_for_empty_list() -> None:
     assert main.episode_id_list([]) is None
 
 
-def test_finds_key_in_later_dict():
+def test_finds_key_in_later_dict() -> None:
     values = [
         {"something_else": 0},
         {"episode_id_list": 2},

@@ -39,7 +39,7 @@ jobs:
         run: uv sync --locked --all-extras
 
       - name: Type check
-        run: uv run mypy main.py
+        run: uv run mypy
 
       - name: Run tests
         run: uv run pytest

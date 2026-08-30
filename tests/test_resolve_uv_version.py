@@ -16,7 +16,10 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 
 def _run(pyproject: Path) -> "subprocess.CompletedProcess[str]":
-    return subprocess.run([str(SCRIPT), str(pyproject)], capture_output=True, text=True)
+    # check=False: 失敗時の returncode / stderr を検証するテストなので例外にしない。
+    return subprocess.run(
+        [str(SCRIPT), str(pyproject)], capture_output=True, text=True, check=False
+    )
 
 
 def _write(tmp_path: Path, content: str) -> Path:
@@ -26,7 +29,7 @@ def _write(tmp_path: Path, content: str) -> Path:
 
 
 def test_script_is_executable() -> None:
-    assert os.access(SCRIPT, os.X_OK), f"{SCRIPT} に実行ビットが無い（CI が直接起動する）"
+    assert os.access(SCRIPT, os.X_OK), f"{SCRIPT} に実行ビットが無い(CI が直接起動する)"
 
 
 def test_resolves_pin_from_repo_pyproject() -> None:

@@ -39,7 +39,7 @@ def _parse_bool(value: str) -> bool:
 SSL_VERIFY = _parse_bool(os.getenv("SSL_VERIFY", "True"))
 
 
-# API 検証ハッシュ生成（サイト側で難読化された識別子をそのまま使用）
+# API 検証ハッシュ生成(サイト側で難読化された識別子をそのまま使用)
 def mc(data: object) -> str:
     return hashlib.sha256(str(data).encode()).hexdigest()
 
@@ -81,9 +81,7 @@ def create_session() -> requests.Session:
     return session
 
 
-def fetch_episode_list(
-    session: requests.Session, episode_ids: list[Any]
-) -> list[dict[str, Any]]:
+def fetch_episode_list(session: requests.Session, episode_ids: list[Any]) -> list[dict[str, Any]]:
     last_ids = ",".join(map(str, episode_ids[-EPISODE_HASH_WINDOW:]))
     payload = {"episode_id_list": last_ids}
     response = session.post(
@@ -104,9 +102,7 @@ def fetch_episode_list(
     return list(episodes)
 
 
-def build_feed_for_title(
-    session: requests.Session, feed_id: str
-) -> dict[str, str] | None:
+def build_feed_for_title(session: requests.Session, feed_id: str) -> dict[str, str] | None:
     url = f"{TITLE_BASE_URL}{feed_id}"
     logger.info("%s %s", feed_id, url)
 
